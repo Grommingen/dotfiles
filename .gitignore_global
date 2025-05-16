@@ -1,0 +1,8 @@
+# direnv files
+.direnv
+.envrc
+credentials.auto.tfvars
+*.DS_Store
+*.LSOverride
+Thumbs.db
+.bundle
