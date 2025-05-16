@@ -1,3 +1,4 @@
+set -gx PATH /opt/homebrew/bin $PATH
 #Denne if status greia, pass på å ikke putte noe inn der enda.
 if status is-interactive
     # Commands to run in interactive sessions can go here
@@ -21,7 +22,6 @@ set -gx EDITOR vim
 #source /home/bjohoi/.config/fish/completions/ppj_complete.fish
 #source /home/bjohoi/.config/fish/completions/workpasscompletion.fish
 # PATHS
-set -gx PATH /opt/homebrew/bin $PATH
 # set configs: https://mattermost.redpill-linpro.com/rl/pl/m89q6769ifgnmdqp8m55jabi5c
 # not working yet alias åpnestack='mkdir -p /run/user/1000/openstack/ ;gpg -d ~/.config/openstack/clouds.yaml.gpg > /run/user/1000/openstack/clouds.yaml'
 
