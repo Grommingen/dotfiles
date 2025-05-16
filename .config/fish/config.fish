@@ -1,4 +1,4 @@
-set -gx PATH /opt/homebrew/bin $PATH
+set -gx PATH /opt/homebrew/bin $HOME/Library/Python/3.9/bin $PATH
 #Denne if status greia, pass på å ikke putte noe inn der enda.
 if status is-interactive
     # Commands to run in interactive sessions can go here
