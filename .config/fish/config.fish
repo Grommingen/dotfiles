@@ -12,15 +12,16 @@ direnv hook fish | source
 set -g direnv_fish_mode eval_on_arrow
 set -gx EDITOR vim
 # source functions
-#source /home/bjohoi/.config/fish/functions/__fish_complete_directories_homemade_tf.fish
-#source /home/bjohoi/.config/fish/functions/__fish_complete_directories_homemade_puppet.fish
-#source /home/bjohoi/.config/fish/functions/__fish_complete_directories_homemade_workpass.fish
-#source /home/bjohoi/.config/fish/functions/tfjump.fish
-#source /home/bjohoi/.config/fish/functions/puppetjump.fish
-## source completions
-#source /home/bjohoi/.config/fish/completions/tfj_complete.fish
-#source /home/bjohoi/.config/fish/completions/ppj_complete.fish
-#source /home/bjohoi/.config/fish/completions/workpasscompletion.fish
+/Users/bia/.config/fish
+source /Users/bia/.config/fish/functions/__fish_complete_directories_homemade_tf.fish
+source /Users/bia/.config/fish/functions/__fish_complete_directories_homemade_puppet.fish
+source /Users/bia/.config/fish/functions/__fish_complete_directories_homemade_workpass.fish
+source /Users/bia/.config/fish/functions/tfjump.fish
+source /Users/bia/.config/fish/functions/puppetjump.fish
+# source completions
+source /Users/bia/.config/fish/completions/tfj_complete.fish
+source /Users/bia/.config/fish/completions/ppj_complete.fish
+source /Users/bia/.config/fish/completions/workpasscompletion.fish
 # PATHS
 # set configs: https://mattermost.redpill-linpro.com/rl/pl/m89q6769ifgnmdqp8m55jabi5c
 # not working yet alias åpnestack='mkdir -p /run/user/1000/openstack/ ;gpg -d ~/.config/openstack/clouds.yaml.gpg > /run/user/1000/openstack/clouds.yaml'
