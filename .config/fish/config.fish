@@ -31,7 +31,7 @@ source /Users/bia/.config/fish/completions/workpasscompletion.fish
 #zstyle ':completion::complete:workpass::' prefix "$HOME/.work-password-store"
 
 # Aliases
-if command -sq /usr/bin/bat
+if command -sq /opt/homebrew/bin/bat
   alias cat="bat --plain"
 end
 alias bat="bat --plain"
