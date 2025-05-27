@@ -126,3 +126,4 @@ export COMPOSER_MEMORY_LIMIT=-1
 #}
 #shopt -s extdebug
 #trap prod_command_trap DEBUG
+. "/Users/bia/.acme.sh/acme.sh.env"
