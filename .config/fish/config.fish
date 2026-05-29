@@ -1,8 +1,7 @@
-set -gx PATH /opt/homebrew/bin $HOME/Library/Python/3.9/bin $PATH
+set -gx PATH /opt/homebrew/opt/mysql-client/bin /opt/homebrew/bin $HOME/Library/Python/3.9/bin /opt/homebrew/opt/helm@3/bin/ $PATH
 #Denne if status greia, pass på å ikke putte noe inn der enda.
 if status is-interactive
     # Commands to run in interactive sessions can go here
-
 end
 starship init fish | source
 # direnv stuff

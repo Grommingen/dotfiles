@@ -1,8 +1,12 @@
 # direnv files
 .direnv
 .envrc
+# tofu
 credentials.auto.tfvars
+#Random
 *.DS_Store
 *.LSOverride
 Thumbs.db
 .bundle
+Pipfile
+Pipfile.lock
