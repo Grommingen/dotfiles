@@ -36,4 +36,4 @@ end
 alias bat="bat --plain"
 
 # Created by `pipx` on 2026-09-14 07:32:11
-set PATH $PATH /Users/bia/.local/bin
+set PATH $PATH /Users/bia/.local/bin ~/work/git/agentkit/bin
