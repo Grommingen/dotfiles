@@ -44,9 +44,11 @@ check "fix: reviewer saw the change as uncommitted diff" 'grep -qx a.txt "$tmp/s
 check "fix: own working tree untouched"   '[ "$(cat "$r/a.txt")" = "$(printf "one\ntwo")" ] && [ -z "$(git -C "$r" status --porcelain)" ]'
 check "fix: worktree and lock removed"    '[ -z "$(find "$REVIEW_BOT_STATE/worktrees" "$REVIEW_BOT_STATE/locks" -mindepth 1)" ]'
 check "fix: notified"                     'grep -q "Review done in fix: Fixes on $b" "$REVIEW_BOT_NOTIFY_LOG"'
+check "fix: notification opens report"    'grep "Review done in fix" "$REVIEW_BOT_NOTIFY_LOG" | grep -q "\[open .*/reports/fix-.*\.md\]"'
 check "flags: built-in /code-review --fix" 'grep -qx "/code-review medium --fix" "$tmp/args"'
 check "flags: sonnet, budget 2, dontAsk"  'grep -qx sonnet "$tmp/args" && grep -qx 2 "$tmp/args" && grep -qx dontAsk "$tmp/args"'
 check "flags: edits limited to worktree"  'grep -q "^Edit(//.*/worktrees/.*/\*\*)$" "$tmp/args"'
+check "flags: no Write rule (Edit covers it)" '! grep -q "^Write(" "$tmp/args"'
 check "flags: commit and push denied"     'grep -qx "Bash(git commit\*)" "$tmp/args" && grep -qx "Bash(git push\*)" "$tmp/args"'
 check "flags: no test command by default" '! grep -q "make test" "$tmp/args"'
 
@@ -62,6 +64,7 @@ r=$(new_repo crash)
 FAKE_MODE=crash "$BOT" "$r" HEAD~1 HEAD
 check "crash: no branch"                  '[ -z "$(git -C "$r" branch --list "review/*")" ]'
 check "crash: notified"                   'grep -q "Review failed in crash" "$REVIEW_BOT_NOTIFY_LOG"'
+check "crash: notification opens log"     'grep "Review failed in crash" "$REVIEW_BOT_NOTIFY_LOG" | grep -q "\[open .*/logs/crash-.*\.log\]"'
 check "crash: worktree and lock removed"  '[ -z "$(find "$REVIEW_BOT_STATE/worktrees" "$REVIEW_BOT_STATE/locks" -mindepth 1)" ]'
 
 # 4. a fix that adds a secret is dropped

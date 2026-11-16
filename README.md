@@ -27,7 +27,8 @@ In a repository with `git config review.auto true`, the global `pre-push` hook s
 delayed. It runs Claude Code's built-in `/code-review medium --fix` in a separate worktree
 (Sonnet, `$2` budget, allowlisted tools only). If the reviewer changed anything, the
 changes become one commit on branch `review/<short sha>` on top of the pushed commit, for
-you to merge. A macOS notification links the report.
+you to merge. A macOS notification names the report; with `terminal-notifier` installed
+(`brew install terminal-notifier`), clicking it opens the report (the log on failure).
 
 - Per repo test command: `git config review.testCommand "make test"`.
 - Reports and logs: `~/.local/state/review-bot/`. Tests: `.claude/tests/review-bot.test.sh`.

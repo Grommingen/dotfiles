@@ -38,10 +38,14 @@ branch="review/$id"
 exec >>"$log" 2>&1
 echo "== $(date -u +%FT%TZ) review-bot $repo ${base:0:12}..$id"
 
-notify() {
+notify() {   # TITLE TEXT FILE: clicking the notification opens FILE (with terminal-notifier)
   if [ -n "${REVIEW_BOT_NOTIFY_LOG:-}" ]; then
-    printf '%s: %s\n' "$1" "$2" >>"$REVIEW_BOT_NOTIFY_LOG"
-  else
+    printf '%s: %s [open %s]\n' "$1" "$2" "$3" >>"$REVIEW_BOT_NOTIFY_LOG"
+  elif command -v terminal-notifier >/dev/null 2>&1 \
+       && terminal-notifier -title "$1" -message "$2" -open "file://$3" -group "review-bot-$id" \
+            >/dev/null 2>&1; then
+    :
+  else   # no terminal-notifier, or it may not post (System Settings > Notifications)
     osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' \
       -e 'end run' "$1" "$2" >/dev/null 2>&1 || true
   fi
@@ -53,7 +57,7 @@ finish() {
   rmdir "$lock" 2>/dev/null || true
   if [ "$code" != 0 ]; then
     echo "review-bot failed (exit $code)"
-    notify "Review failed in $repo" "Log: $log"
+    notify "Review failed in $repo" "Log: $log" "$log"
   fi
 }
 trap finish EXIT
@@ -61,7 +65,7 @@ trap finish EXIT
 git -C "$root" worktree add -q --detach "$wt" "$head"
 git -C "$wt" reset -q --soft "$base"          # the change is now the uncommitted diff
 
-allowed=(Skill Agent Read Grep Glob "Edit(/${wt}/**)" "Write(/${wt}/**)"
+allowed=(Skill Agent Read Grep Glob "Edit(/${wt}/**)"
          "Bash(git status*)" "Bash(git diff*)" "Bash(git log*)" "Bash(git show*)"
          "Bash(git blame*)")
 test_cmd=$(git -C "$root" config --get review.testCommand || true)
@@ -81,18 +85,18 @@ denied=("Bash(git push*)" "Bash(git commit*)" "Bash(git reset*)" "Bash(git check
 git -C "$wt" add -A
 tree=$(git -C "$wt" write-tree)
 if [ "$tree" = "$(git -C "$root" rev-parse "$head^{tree}")" ]; then
-  notify "Review done in $repo" "No fixes. Report: $report"
+  notify "Review done in $repo" "No fixes. Report: $report" "$report"
   echo "done: no fixes"
   exit 0
 fi
 # The fix commit skips the pre-commit hook, so scan it here.
 if command -v betterleaks >/dev/null 2>&1 \
    && ! (cd "$wt" && betterleaks git --pre-commit --staged --redact --no-banner --log-level warn); then
-  notify "Review in $repo: fixes not kept" "betterleaks found a secret in them. Log: $log"
+  notify "Review in $repo: fixes not kept" "betterleaks found a secret in them. Log: $log" "$log"
   exit 0
 fi
 msg=$(printf 'review: fixes from /code-review of %s..%s\n\n%s\n' "${base:0:12}" "$id" "$(cat "$report")")
 fix=$(git -C "$root" commit-tree "$tree" -p "$head" -F - <<<"$msg")
 git -C "$root" branch -f "$branch" "$fix"
-notify "Review done in $repo" "Fixes on $branch. Report: $report"
+notify "Review done in $repo" "Fixes on $branch. Report: $report" "$report"
 echo "done: fixes on $branch"
