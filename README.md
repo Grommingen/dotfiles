@@ -20,17 +20,14 @@ MIT / BSD
   `~/.claude/settings.json` itself, so it is merged rather than linked:
   `~/work/git/claudekit/bin/claude-prefs --prefs .claude/prefs.json --apply`.
 
-### review-bot: automatic review-relay reviews
+### review-bot: automatic reviews on push
 
-When a Claude session in a repository writes a review-relay request (the
-`review-relay@claudekit` plugin from `~/work/git/claudekit`), the `Stop` hook
-`.claude/hooks/review-trigger` starts `.claude/bin/review-bot` in the background.
-It reviews in a separate worktree on branch `review/<id>` with a headless Claude
-(Sonnet, `$2` budget, allowlisted tools only), closes the request in the repository
-and sends a macOS notification. Fixes stay on `review/<id>` for you to merge; with
-no fix commits the branch is deleted.
+In a repository with `git config review.auto true`, the global `pre-push` hook starts
+`.claude/bin/review-bot` in the background for the commits being pushed; the push is not
+delayed. It runs Claude Code's built-in `/code-review medium --fix` in a separate worktree
+(Sonnet, `$2` budget, allowlisted tools only). If the reviewer changed anything, the
+changes become one commit on branch `review/<short sha>` on top of the pushed commit, for
+you to merge. A macOS notification links the report.
 
 - Per repo test command: `git config review.testCommand "make test"`.
-- Logs: `~/.local/state/review-bot/logs/`. Tests: `.claude/tests/review-bot.test.sh`.
-- review-relay needs PyYAML for Homebrew python3, which has no formula:
-  `python3 -m pip install --user --break-system-packages pyyaml`.
+- Reports and logs: `~/.local/state/review-bot/`. Tests: `.claude/tests/review-bot.test.sh`.

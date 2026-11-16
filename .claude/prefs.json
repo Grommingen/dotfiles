@@ -5,28 +5,5 @@
       "Bash(git *commit* -n*)",
       "Bash(git *core.hooksPath*)"
     ]
-  },
-  "extraKnownMarketplaces": {
-    "claudekit": {
-      "source": {
-        "source": "directory",
-        "path": "/Users/bia/work/git/claudekit"
-      }
-    }
-  },
-  "enabledPlugins": {
-    "review-relay@claudekit": true
-  },
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$HOME/.claude/hooks/review-trigger\""
-          }
-        ]
-      }
-    ]
   }
 }

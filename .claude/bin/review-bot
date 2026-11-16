@@ -1,37 +1,42 @@
 #!/usr/bin/env bash
-# review-bot ROOT
+# review-bot ROOT BASE HEAD
 #
-# Performs ROOT's pending review-relay request without touching ROOT's working tree:
-#   1. takes a lock, so a request is reviewed once
-#   2. creates a worktree on branch review/<id> at the reviewed head
-#   3. claims the request in ROOT, so interactive sessions leave it alone
-#   4. runs a headless Claude (/review-relay:run-review) in the worktree, with an
-#      allowlist of tools and a budget cap
-#   5. copies the closed request and its findings back to ROOT, keeps review/<id>
-#      only when it holds fix commits, and reports by macOS notification
+# Reviews the commits BASE..HEAD of ROOT with Claude Code's built-in /code-review, in a
+# separate worktree, so ROOT's working tree is never touched. Started by the global
+# pre-push hook in repositories with `git config review.auto true`.
+#   1. takes a lock, so the same HEAD is reviewed once
+#   2. creates a worktree whose HEAD is BASE and whose index and files are HEAD, so the
+#      change under review is the worktree's uncommitted diff
+#   3. runs `claude -p "/code-review <level> --fix"` there, with an allowlist of tools and
+#      a budget cap, and saves the report
+#   4. if the reviewer changed files, commits them on branch review/<short HEAD> on top of
+#      HEAD for you to merge; then removes the worktree and sends a macOS notification
 #
 # Settings (environment):
 #   REVIEW_BOT_MODEL   model for the reviewer (default sonnet)
 #   REVIEW_BOT_BUDGET  max USD per review (default 2)
+#   REVIEW_BOT_LEVEL   /code-review level: low|medium|high|xhigh (default medium)
 # Per repository: `git config review.testCommand "make test"` lets the reviewer run tests.
-# Logs: ${XDG_STATE_HOME:-~/.local/state}/review-bot/logs/
+# State: ${XDG_STATE_HOME:-~/.local/state}/review-bot/{reports,logs}/
 set -euo pipefail
 
-root=$(git -C "${1:?usage: review-bot ROOT}" rev-parse --show-toplevel)
+root=$(git -C "${1:?usage: review-bot ROOT BASE HEAD}" rev-parse --show-toplevel)
+base=$(git -C "$root" rev-parse --verify "${2:?BASE}^{commit}")
+head=$(git -C "$root" rev-parse --verify "${3:?HEAD}^{commit}")
 repo=$(basename "$root")
+id=${head:0:12}
 key=$(printf %s "$root" | shasum | cut -c1-8)
 state="${REVIEW_BOT_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/review-bot}"
-mkdir -p "$state/logs" "$state/locks" "$state/worktrees"
+mkdir -p "$state/logs" "$state/locks" "$state/worktrees" "$state/reports"
 
-relay_bin() {
-  local found
-  found=$(ls -d "$HOME"/.claude/plugins/cache/claudekit/review-relay/*/bin/review-relay 2>/dev/null \
-            | sort -V | tail -1)
-  echo "${REVIEW_RELAY_BIN:-${found:-review-relay}}"
-}
-RELAY=$(relay_bin)
-relay() { (cd "$1" && shift && env -u CLAUDE_PID "$RELAY" "$@"); }
-field() { python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1])).get(sys.argv[2], ""))' "$1" "$2"; }
+lock="$state/locks/$key-$id"
+mkdir "$lock" 2>/dev/null || exit 0           # this HEAD is already being reviewed
+log="$state/logs/$repo-$id.log"
+report="$state/reports/$repo-$id.md"
+wt="$state/worktrees/$key-$id"
+branch="review/$id"
+exec >>"$log" 2>&1
+echo "== $(date -u +%FT%TZ) review-bot $repo ${base:0:12}..$id"
 
 notify() {
   if [ -n "${REVIEW_BOT_NOTIFY_LOG:-}" ]; then
@@ -42,92 +47,52 @@ notify() {
   fi
 }
 
-# Only a pending request. An in-progress one belongs to whoever claimed it.
-marker="$root/.review-relay/request.yaml"
-[ -f "$marker" ] || exit 0
-[ "$(field "$marker" status)" = pending ] || exit 0
-id=$(field "$marker" id)
-lock="$state/locks/$key-$id"
-mkdir "$lock" 2>/dev/null || exit 0         # another review-bot has this request
-
-log="$state/logs/$key-$id.log"
-exec >>"$log" 2>&1
-echo "== $(date -u +%FT%TZ) review-bot $repo $id"
-
-head=$(field "$marker" head)
-wt="$state/worktrees/$key-$id"
-branch="review/$id"
-claimed=""
-
-cleanup_worktree() {
+finish() {
+  local code=$?
   [ -d "$wt" ] && git -C "$root" worktree remove --force "$wt" || true
-  if [ -z "$(git -C "$root" rev-list "$head..$branch" 2>/dev/null)" ]; then
-    git -C "$root" branch -D "$branch" >/dev/null 2>&1 || true
+  rmdir "$lock" 2>/dev/null || true
+  if [ "$code" != 0 ]; then
+    echo "review-bot failed (exit $code)"
+    notify "Review failed in $repo" "Log: $log"
   fi
 }
+trap finish EXIT
 
-fail() {
-  local code=$?
-  trap - EXIT
-  echo "review-bot failed (exit $code)"
-  [ -n "$claimed" ] && relay "$root" finish --abandon "review-bot failed, see $log" || true
-  cleanup_worktree
-  rmdir "$lock" 2>/dev/null || true
-  notify "Review failed in $repo" "Request $id abandoned. Log: $log"
-  exit "$code"
-}
-trap fail EXIT
+git -C "$root" worktree add -q --detach "$wt" "$head"
+git -C "$wt" reset -q --soft "$base"          # the change is now the uncommitted diff
 
-git -C "$root" worktree add -q -b "$branch" "$wt" "$head"
-mkdir -p "$wt/.review-relay"
-cp "$marker" "$wt/.review-relay/request.yaml"
-relay "$root" start --session "review-bot-$id"   # no Claude process: held until finish
-claimed=1
-notify "Review started in $repo" "Request $id, reviewing in the background."
-
-allowed=(Skill Read Grep Glob "Edit(/${wt}/**)" "Write(/${wt}/**)"
+allowed=(Skill Agent Read Grep Glob "Edit(/${wt}/**)" "Write(/${wt}/**)"
          "Bash(git status*)" "Bash(git diff*)" "Bash(git log*)" "Bash(git show*)"
-         "Bash(git add *)" "Bash(git commit *)" "Bash(review-relay *)")
+         "Bash(git blame*)")
 test_cmd=$(git -C "$root" config --get review.testCommand || true)
 [ -n "$test_cmd" ] && allowed+=("Bash($test_cmd)" "Bash($test_cmd *)")
-denied=("Bash(git push*)" "Bash(git reset*)" "Bash(git checkout*)" "Bash(git switch*)"
-        "Bash(rm -rf*)" "Bash(curl*)" "Bash(wget*)")
+denied=("Bash(git push*)" "Bash(git commit*)" "Bash(git reset*)" "Bash(git checkout*)"
+        "Bash(git switch*)" "Bash(git stash*)" "Bash(rm -rf*)" "Bash(curl*)" "Bash(wget*)")
 
-(cd "$wt" && REVIEW_BOT=1 PATH="$(dirname "$RELAY"):$PATH" "${REVIEW_BOT_CLAUDE:-claude}" \
-   -p "/review-relay:run-review" \
+(cd "$wt" && "${REVIEW_BOT_CLAUDE:-claude}" \
+   -p "/code-review ${REVIEW_BOT_LEVEL:-medium} --fix" \
    --model "${REVIEW_BOT_MODEL:-sonnet}" \
    --max-budget-usd "${REVIEW_BOT_BUDGET:-2}" \
    --permission-mode dontAsk \
    --disallowedTools "${denied[@]}" \
-   --allowedTools "${allowed[@]}")
+   --allowedTools "${allowed[@]}") >"$report"
 
-result="$wt/.review-relay/request.yaml"
-status=$(field "$result" status)
-case "$status" in
-  done|abandoned) ;;
-  *) echo "reviewer ended with the request $status"; exit 1 ;;
-esac
-
-# Close the request in ROOT with the reviewer's record.
-mkdir -p "$root/.review-relay/reviews"
-findings="$wt/.review-relay/reviews/$id.yaml"
-[ -f "$findings" ] && cp "$findings" "$root/.review-relay/reviews/$id.yaml"
-cp "$result" "$marker"
-trap - EXIT
-
-fixes=$(git -C "$root" rev-list --count "$head..$branch")
-count=0
-[ -f "$findings" ] && count=$(python3 -c 'import sys, yaml; print(len(yaml.safe_load(open(sys.argv[1])).get("findings") or []))' "$findings")
-cleanup_worktree
-rmdir "$lock" 2>/dev/null || true
-
-if [ "$status" = abandoned ]; then
-  notify "Review abandoned in $repo" "$(field "$marker" reason)"
-elif [ "$count" = 0 ]; then
-  notify "Review done in $repo" "No findings."
-elif [ "$fixes" -gt 0 ]; then
-  notify "Review done in $repo" "$count findings, $fixes fix commits. Merge $branch."
-else
-  notify "Review done in $repo" "$count findings, no fixes. See .review-relay/reviews/$id.yaml"
+# Whatever the reviewer changed, as one commit on top of HEAD.
+git -C "$wt" add -A
+tree=$(git -C "$wt" write-tree)
+if [ "$tree" = "$(git -C "$root" rev-parse "$head^{tree}")" ]; then
+  notify "Review done in $repo" "No fixes. Report: $report"
+  echo "done: no fixes"
+  exit 0
 fi
-echo "done: status=$status findings=$count fixes=$fixes"
+# The fix commit skips the pre-commit hook, so scan it here.
+if command -v betterleaks >/dev/null 2>&1 \
+   && ! (cd "$wt" && betterleaks git --pre-commit --staged --redact --no-banner --log-level warn); then
+  notify "Review in $repo: fixes not kept" "betterleaks found a secret in them. Log: $log"
+  exit 0
+fi
+msg=$(printf 'review: fixes from /code-review of %s..%s\n\n%s\n' "${base:0:12}" "$id" "$(cat "$report")")
+fix=$(git -C "$root" commit-tree "$tree" -p "$head" -F - <<<"$msg")
+git -C "$root" branch -f "$branch" "$fix"
+notify "Review done in $repo" "Fixes on $branch. Report: $report"
+echo "done: fixes on $branch"
