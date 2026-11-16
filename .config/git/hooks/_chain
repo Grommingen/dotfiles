@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# core.hooksPath makes git ignore the repository's .git/hooks. Every hook in
+# this directory ends here, which runs the repository's own hook of the same
+# name (pre-commit framework, hand-written hooks) if it has one.
+hook="${CHAIN_HOOK:-$(basename "$0")}"
+local_hook="$(git rev-parse --git-common-dir)/hooks/$hook"
+[ -x "$local_hook" ] || exit 0
+exec "$local_hook" "$@"

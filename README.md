@@ -7,3 +7,15 @@ You may also be interested in my [Mac Development Ansible Playbook](https://gith
 ## License
 
 MIT / BSD
+
+## Claude Code and git hooks
+
+- `.config/git/hooks/` is the global hooks directory (`core.hooksPath` in `.gitconfig`).
+  `pre-commit` scans staged changes with `betterleaks` and blocks the commit on a finding.
+  Every hook then runs the repository's own `.git/hooks/<name>` if there is one, so
+  per-repo hooks keep working. A repo that sets its own local `core.hooksPath` (husky)
+  skips these hooks.
+- `.claude/CLAUDE.md` is linked to `~/.claude/CLAUDE.md`.
+- `.claude/prefs.json` holds Claude Code settings. Claude Code rewrites
+  `~/.claude/settings.json` itself, so it is merged rather than linked:
+  `~/work/git/claudekit/bin/claude-prefs --prefs .claude/prefs.json --apply`.

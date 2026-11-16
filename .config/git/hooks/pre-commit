@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Global pre-commit (core.hooksPath): scan staged changes for secrets with
+# betterleaks, then run the repository's own pre-commit hook.
+set -u
+
+if command -v betterleaks >/dev/null 2>&1; then
+  if ! betterleaks git --pre-commit --staged --redact --verbose --no-banner --log-level warn; then
+    echo "pre-commit: betterleaks found secrets in the staged changes (shown redacted above). Commit blocked." >&2
+    exit 1
+  fi
+else
+  echo "pre-commit: betterleaks not installed, secret scan skipped." >&2
+fi
+
+CHAIN_HOOK=pre-commit exec "$(dirname "$0")/_chain" "$@"
