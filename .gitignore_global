@@ -10,3 +10,5 @@ Thumbs.db
 .bundle
 Pipfile
 Pipfile.lock
+
+**/.claude/settings.local.json
