@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# review-bot ROOT
+#
+# Performs ROOT's pending review-relay request without touching ROOT's working tree:
+#   1. takes a lock, so a request is reviewed once
+#   2. creates a worktree on branch review/<id> at the reviewed head
+#   3. claims the request in ROOT, so interactive sessions leave it alone
+#   4. runs a headless Claude (/review-relay:run-review) in the worktree, with an
+#      allowlist of tools and a budget cap
+#   5. copies the closed request and its findings back to ROOT, keeps review/<id>
+#      only when it holds fix commits, and reports by macOS notification
+#
+# Settings (environment):
+#   REVIEW_BOT_MODEL   model for the reviewer (default sonnet)
+#   REVIEW_BOT_BUDGET  max USD per review (default 2)
+# Per repository: `git config review.testCommand "make test"` lets the reviewer run tests.
+# Logs: ${XDG_STATE_HOME:-~/.local/state}/review-bot/logs/
+set -euo pipefail
+
+root=$(git -C "${1:?usage: review-bot ROOT}" rev-parse --show-toplevel)
+repo=$(basename "$root")
+key=$(printf %s "$root" | shasum | cut -c1-8)
+state="${REVIEW_BOT_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/review-bot}"
+mkdir -p "$state/logs" "$state/locks" "$state/worktrees"
+
+relay_bin() {
+  local found
+  found=$(ls -d "$HOME"/.claude/plugins/cache/claudekit/review-relay/*/bin/review-relay 2>/dev/null \
+            | sort -V | tail -1)
+  echo "${REVIEW_RELAY_BIN:-${found:-review-relay}}"
+}
+RELAY=$(relay_bin)
+relay() { (cd "$1" && shift && env -u CLAUDE_PID "$RELAY" "$@"); }
+field() { python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1])).get(sys.argv[2], ""))' "$1" "$2"; }
+
+notify() {
+  if [ -n "${REVIEW_BOT_NOTIFY_LOG:-}" ]; then
+    printf '%s: %s\n' "$1" "$2" >>"$REVIEW_BOT_NOTIFY_LOG"
+  else
+    osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' \
+      -e 'end run' "$1" "$2" >/dev/null 2>&1 || true
+  fi
+}
+
+# Only a pending request. An in-progress one belongs to whoever claimed it.
+marker="$root/.review-relay/request.yaml"
+[ -f "$marker" ] || exit 0
+[ "$(field "$marker" status)" = pending ] || exit 0
+id=$(field "$marker" id)
+lock="$state/locks/$key-$id"
+mkdir "$lock" 2>/dev/null || exit 0         # another review-bot has this request
+
+log="$state/logs/$key-$id.log"
+exec >>"$log" 2>&1
+echo "== $(date -u +%FT%TZ) review-bot $repo $id"
+
+head=$(field "$marker" head)
+wt="$state/worktrees/$key-$id"
+branch="review/$id"
+claimed=""
+
+cleanup_worktree() {
+  [ -d "$wt" ] && git -C "$root" worktree remove --force "$wt" || true
+  if [ -z "$(git -C "$root" rev-list "$head..$branch" 2>/dev/null)" ]; then
+    git -C "$root" branch -D "$branch" >/dev/null 2>&1 || true
+  fi
+}
+
+fail() {
+  local code=$?
+  trap - EXIT
+  echo "review-bot failed (exit $code)"
+  [ -n "$claimed" ] && relay "$root" finish --abandon "review-bot failed, see $log" || true
+  cleanup_worktree
+  rmdir "$lock" 2>/dev/null || true
+  notify "Review failed in $repo" "Request $id abandoned. Log: $log"
+  exit "$code"
+}
+trap fail EXIT
+
+git -C "$root" worktree add -q -b "$branch" "$wt" "$head"
+mkdir -p "$wt/.review-relay"
+cp "$marker" "$wt/.review-relay/request.yaml"
+relay "$root" start --session "review-bot-$id"   # no Claude process: held until finish
+claimed=1
+notify "Review started in $repo" "Request $id, reviewing in the background."
+
+allowed=(Skill Read Grep Glob "Edit(/${wt}/**)" "Write(/${wt}/**)"
+         "Bash(git status*)" "Bash(git diff*)" "Bash(git log*)" "Bash(git show*)"
+         "Bash(git add *)" "Bash(git commit *)" "Bash(review-relay *)")
+test_cmd=$(git -C "$root" config --get review.testCommand || true)
+[ -n "$test_cmd" ] && allowed+=("Bash($test_cmd)" "Bash($test_cmd *)")
+denied=("Bash(git push*)" "Bash(git reset*)" "Bash(git checkout*)" "Bash(git switch*)"
+        "Bash(rm -rf*)" "Bash(curl*)" "Bash(wget*)")
+
+(cd "$wt" && REVIEW_BOT=1 PATH="$(dirname "$RELAY"):$PATH" "${REVIEW_BOT_CLAUDE:-claude}" \
+   -p "/review-relay:run-review" \
+   --model "${REVIEW_BOT_MODEL:-sonnet}" \
+   --max-budget-usd "${REVIEW_BOT_BUDGET:-2}" \
+   --permission-mode dontAsk \
+   --disallowedTools "${denied[@]}" \
+   --allowedTools "${allowed[@]}")
+
+result="$wt/.review-relay/request.yaml"
+status=$(field "$result" status)
+case "$status" in
+  done|abandoned) ;;
+  *) echo "reviewer ended with the request $status"; exit 1 ;;
+esac
+
+# Close the request in ROOT with the reviewer's record.
+mkdir -p "$root/.review-relay/reviews"
+findings="$wt/.review-relay/reviews/$id.yaml"
+[ -f "$findings" ] && cp "$findings" "$root/.review-relay/reviews/$id.yaml"
+cp "$result" "$marker"
+trap - EXIT
+
+fixes=$(git -C "$root" rev-list --count "$head..$branch")
+count=0
+[ -f "$findings" ] && count=$(python3 -c 'import sys, yaml; print(len(yaml.safe_load(open(sys.argv[1])).get("findings") or []))' "$findings")
+cleanup_worktree
+rmdir "$lock" 2>/dev/null || true
+
+if [ "$status" = abandoned ]; then
+  notify "Review abandoned in $repo" "$(field "$marker" reason)"
+elif [ "$count" = 0 ]; then
+  notify "Review done in $repo" "No findings."
+elif [ "$fixes" -gt 0 ]; then
+  notify "Review done in $repo" "$count findings, $fixes fix commits. Merge $branch."
+else
+  notify "Review done in $repo" "$count findings, no fixes. See .review-relay/reviews/$id.yaml"
+fi
+echo "done: status=$status findings=$count fixes=$fixes"
