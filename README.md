@@ -18,7 +18,7 @@ MIT / BSD
 - `.claude/CLAUDE.md` is linked to `~/.claude/CLAUDE.md`.
 - `.claude/prefs.json` holds Claude Code settings. Claude Code rewrites
   `~/.claude/settings.json` itself, so it is merged rather than linked:
-  `~/work/git/claudekit/bin/claude-prefs --prefs .claude/prefs.json --apply`.
+  `~/work/git/agentkit/bin/claude-prefs --prefs .claude/prefs.json --apply`.
 
 ### review-bot: automatic reviews on push
 
